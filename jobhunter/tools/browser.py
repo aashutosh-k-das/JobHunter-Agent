@@ -64,3 +64,9 @@ class Browser:
             cls._inst.ctx.close()
             cls._inst._pw.stop()
             cls._inst = None
+
+    # ---------------------------------------------------------------- login
+    def login_interactive(self) -> None:
+        for url in ("https://www.linkedin.com/login", "https://www.naukri.com/nlogin/login"):
+            self.page.goto(url)
+            input(f"Log in at {url} in the opened browser, then press Enter here... ")
