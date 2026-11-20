@@ -1,0 +1,39 @@
+# Copy to criteria.yaml and edit.
+resume_path: resume.pdf          # .pdf, .txt or .md
+
+searches:
+  - keywords: "Machine Learning Engineer"
+    location: "Bengaluru"
+  - keywords: "Python Developer"
+    location: "Remote"
+
+sources: [linkedin, naukri]       # any subset
+max_jobs_per_search: 15
+min_match_score: 70               # 0-100, GPT-4o relevance score threshold
+
+filters:
+  experience_years: 1             # your experience; used in scoring
+  must_have_keywords: []          # e.g. ["python"]; job skipped if none present
+  exclude_keywords: ["senior", "staff", "principal", "10+ years"]
+  exclude_companies: []
+  remote_only: false
+
+apply:
+  submit: false                   # false = fill forms but stop before final submit
+  require_approval: true          # pause for human approve/skip on every job
+  max_applications_per_run: 10
+
+# Answers for common application-form questions (matched by label text).
+profile:
+  full_name: "Your Name"
+  email: "you@example.com"
+  phone: "9999999999"
+  city: "Bengaluru"
+  notice_period_days: 30
+  current_ctc_lpa: 0
+  expected_ctc_lpa: 8
+  linkedin_url: ""
+  github_url: ""
+  extra_answers:
+    "authorized to work in india": "Yes"
+    "willing to relocate": "Yes"
