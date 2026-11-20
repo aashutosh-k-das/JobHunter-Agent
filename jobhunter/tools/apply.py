@@ -130,3 +130,30 @@ def apply_linkedin(job: Job, resume: str, c: Criteria) -> tuple[str, str]:
         _human_pause(1, 2)
 
     return ("error", "Easy Apply exceeded max step count")
+
+
+def apply_naukri(job: Job, resume: str, c: Criteria) -> tuple[str, str]:
+    page = Browser.get().page
+    page.goto(job["url"], wait_until="domcontentloaded")
+    _human_pause(2, 3)
+
+    if _first(page, "nk_company_site"):
+        return ("external", "applies on company site")
+
+    btn = _first(page, "nk_apply")
+    if not btn:
+        return ("needs_manual", "no direct apply button found")
+    if "already applied" in btn.inner_text().lower():
+        return ("applied", "already applied previously")
+
+    if not c.apply.submit:
+        return ("ready_to_submit", "stopped at 1-click apply (apply.submit is false)")
+    btn.click()
+    _human_pause(2, 4)
+    return ("applied", "clicked 1-click apply on Naukri")
+
+
+APPLIERS = {
+    "linkedin": apply_linkedin,
+    "naukri": apply_naukri,
+}
