@@ -1,12 +1,19 @@
-"""Playwright session with a persistent, manually-logged-in browser profile."""
+"""Playwright session with a persistent, manually-logged-in browser profile.
+
+Job-site markup changes often, so every selector is a fallback list. If scraping
+breaks, update the lists in SEL below.
+"""
 from __future__ import annotations
 
 import random
+import re
 import time
+from urllib.parse import quote, quote_plus
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from ..config import ENV
+from ..state import Job
 
 SEL = {
     "li_card": ["li[data-occludable-job-id]", "div.job-card-container"],
@@ -73,8 +80,6 @@ class Browser:
 
     # ------------------------------------------------------------- LinkedIn
     def search_linkedin(self, keywords: str, location: str, limit: int) -> list[Job]:
-        from urllib.parse import quote_plus
-        from ..state import Job
         url = (f"https://www.linkedin.com/jobs/search/?keywords={quote_plus(keywords)}"
                f"&location={quote_plus(location)}&f_AL=true&f_TPR=r604800")
         p = self.page
@@ -102,3 +107,39 @@ class Browser:
                 url=f"https://www.linkedin.com/jobs/view/{job_id}/",
             ))
         return jobs
+
+    # --------------------------------------------------------------- Naukri
+    def search_naukri(self, keywords: str, location: str, limit: int) -> list[Job]:
+        slug = re.sub(r"[^a-z0-9]+", "-", keywords.lower()).strip("-")
+        loc = re.sub(r"[^a-z0-9]+", "-", location.lower()).strip("-")
+        url = f"https://www.naukri.com/{slug}-jobs" + (f"-in-{loc}" if loc else "")
+        url += f"?k={quote(keywords)}" + (f"&l={quote(location)}" if location else "")
+        p = self.page
+        p.goto(url, wait_until="domcontentloaded")
+        _human_pause(2, 4)
+
+        jobs: list[Job] = []
+        cards = p.locator(", ".join(SEL["nk_card"]))
+        for i in range(min(cards.count(), limit)):
+            c = cards.nth(i)
+            title_el = _first(c, "nk_title")
+            if not title_el:
+                continue
+            href = title_el.get_attribute("href") or ""
+            job_id = c.get_attribute("data-job-id") or (re.findall(r"(\d{9,})", href) or [href])[-1]
+            jobs.append(Job(
+                source="naukri", job_id=job_id, title=title_el.inner_text().strip(),
+                company=_text(c, "nk_company"), location=_text(c, "nk_location"), url=href,
+            ))
+        return jobs
+
+    # ----------------------------------------------------------- job detail
+    def fetch_description(self, job: Job) -> str:
+        self.page.goto(job["url"], wait_until="domcontentloaded")
+        _human_pause(1.5, 3)
+        key = "li_desc" if job["source"] == "linkedin" else "nk_desc"
+        if job["source"] == "linkedin":
+            more = self.page.locator("button[aria-label*='see more' i], button.jobs-description__footer-button").first
+            if more.count():
+                more.click()
+        return _text(self.page, key)[:12000]
