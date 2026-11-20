@@ -70,3 +70,35 @@ class Browser:
         for url in ("https://www.linkedin.com/login", "https://www.naukri.com/nlogin/login"):
             self.page.goto(url)
             input(f"Log in at {url} in the opened browser, then press Enter here... ")
+
+    # ------------------------------------------------------------- LinkedIn
+    def search_linkedin(self, keywords: str, location: str, limit: int) -> list[Job]:
+        from urllib.parse import quote_plus
+        from ..state import Job
+        url = (f"https://www.linkedin.com/jobs/search/?keywords={quote_plus(keywords)}"
+               f"&location={quote_plus(location)}&f_AL=true&f_TPR=r604800")
+        p = self.page
+        p.goto(url, wait_until="domcontentloaded")
+        _human_pause(2, 4)
+        if "login" in p.url or "authwall" in p.url:
+            raise RuntimeError("Not logged in to LinkedIn. Run: python -m jobhunter login")
+
+        jobs: list[Job] = []
+        cards = p.locator(", ".join(SEL["li_card"]))
+        for _ in range(4):
+            if cards.count():
+                cards.last.scroll_into_view_if_needed()
+            _human_pause(0.8, 1.5)
+        for i in range(min(cards.count(), limit)):
+            c = cards.nth(i)
+            job_id = c.get_attribute("data-occludable-job-id") or c.get_attribute("data-job-id")
+            title_el = _first(c, "li_title")
+            if not job_id or not title_el:
+                continue
+            jobs.append(Job(
+                source="linkedin", job_id=job_id,
+                title=title_el.inner_text().strip().split("\n")[0],
+                company=_text(c, "li_company"), location=_text(c, "li_location"),
+                url=f"https://www.linkedin.com/jobs/view/{job_id}/",
+            ))
+        return jobs
