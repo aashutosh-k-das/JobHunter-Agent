@@ -35,8 +35,8 @@ class Profile(BaseModel):
     phone: str = ""
     city: str = ""
     notice_period_days: int = 30
-    current_ctc_lpa: float = 0
-    expected_ctc_lpa: float = 0
+    current_ctc_lpa: float | None = None
+    expected_ctc_lpa: float | None = None
     linkedin_url: str = ""
     github_url: str = ""
     extra_answers: dict[str, str] = Field(default_factory=dict)

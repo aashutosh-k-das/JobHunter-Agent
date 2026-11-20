@@ -73,13 +73,24 @@ class Browser:
             cls._inst = None
 
     # ---------------------------------------------------------------- login
-    def login_interactive(self) -> None:
-        for url in ("https://www.linkedin.com/login", "https://www.naukri.com/nlogin/login"):
+    def login_interactive(self, timeout_min: int = 5) -> None:
+        """Open each login page and wait until you've signed in in the browser window."""
+        sites = [
+            ("LinkedIn", "https://www.linkedin.com/login", re.compile(r"linkedin\.com/(feed|jobs|in/|mynetwork)")),
+            ("Naukri", "https://www.naukri.com/nlogin/login", re.compile(r"naukri\.com/mnjuser")),
+        ]
+        for name, url, done in sites:
             self.page.goto(url)
-            input(f"Log in at {url} in the opened browser, then press Enter here... ")
+            if done.search(self.page.url):
+                print(f"{name}: already logged in")
+                continue
+            print(f"{name}: log in in the browser window (waiting up to {timeout_min} min)...")
+            self.page.wait_for_url(done, timeout=timeout_min * 60_000)
+            print(f"{name}: logged in")
 
     # ------------------------------------------------------------- LinkedIn
     def search_linkedin(self, keywords: str, location: str, limit: int) -> list[Job]:
+        # f_AL=true -> Easy Apply only; f_TPR=r604800 -> posted in last week
         url = (f"https://www.linkedin.com/jobs/search/?keywords={quote_plus(keywords)}"
                f"&location={quote_plus(location)}&f_AL=true&f_TPR=r604800")
         p = self.page
@@ -90,7 +101,7 @@ class Browser:
 
         jobs: list[Job] = []
         cards = p.locator(", ".join(SEL["li_card"]))
-        for _ in range(4):
+        for _ in range(4):  # results list lazy-loads; scroll it
             if cards.count():
                 cards.last.scroll_into_view_if_needed()
             _human_pause(0.8, 1.5)

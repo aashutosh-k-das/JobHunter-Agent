@@ -1,10 +1,16 @@
-"""Application submitters. Each returns (status, note)."""
+"""Application submitters. Each returns (status, note).
+
+Safety: when criteria.apply.submit is False, forms are filled up to the final
+review step and left open for you; nothing is submitted.
+"""
 from __future__ import annotations
 
 from playwright.sync_api import Locator, Page
 
 from ..config import Criteria
+from ..llm import answer_form_question
 from ..state import Job
+from .browser import SEL, Browser, _first, _human_pause
 
 
 def _profile_answer(label: str, c: Criteria) -> str | None:
@@ -15,8 +21,10 @@ def _profile_answer(label: str, c: Criteria) -> str | None:
         (("email",), p.email),
         (("city", "location"), p.city),
         (("notice",), str(p.notice_period_days)),
-        (("current ctc", "current salary", "current compensation"), str(p.current_ctc_lpa)),
-        (("expected ctc", "expected salary", "expected compensation"), str(p.expected_ctc_lpa)),
+        (("current ctc", "current salary", "current compensation"),
+         "" if p.current_ctc_lpa is None else str(p.current_ctc_lpa)),
+        (("expected ctc", "expected salary", "expected compensation"),
+         "" if p.expected_ctc_lpa is None else str(p.expected_ctc_lpa)),
         (("linkedin",), p.linkedin_url),
         (("github", "portfolio", "website"), p.github_url),
         (("years of experience", "years of work experience", "how many years"),
@@ -38,8 +46,6 @@ def _label_for(page: Page, el: Locator) -> str:
         if lab.count():
             return lab.inner_text().strip()
     return (el.get_attribute("aria-label") or el.get_attribute("placeholder") or "").strip()
-
-from ..llm import answer_form_question
 
 
 def _fill_modal(page: Page, modal: Locator, job: Job, resume: str, c: Criteria) -> list[str]:
@@ -74,7 +80,7 @@ def _fill_modal(page: Page, modal: Locator, job: Job, resume: str, c: Criteria) 
         else:
             unresolved.append(label)
 
-    for fs in modal.locator("fieldset").all():
+    for fs in modal.locator("fieldset").all():  # radio groups
         radios = fs.locator("input[type='radio']")
         if not radios.count() or fs.locator("input[type='radio']:checked").count():
             continue
@@ -89,71 +95,64 @@ def _fill_modal(page: Page, modal: Locator, job: Job, resume: str, c: Criteria) 
 
     return unresolved
 
-from .browser import SEL, Browser, _first, _human_pause
-
 
 def apply_linkedin(job: Job, resume: str, c: Criteria) -> tuple[str, str]:
     page = Browser.get().page
     page.goto(job["url"], wait_until="domcontentloaded")
     _human_pause(2, 3)
-
     btn = _first(page, "li_easy_apply")
-    if not btn:
-        return ("external", "no Easy Apply button; redirected or external")
+    if not btn or "easy apply" not in btn.inner_text().lower():
+        return "external", "No Easy Apply button"
     btn.click()
-    _human_pause(1, 2)
+    _human_pause()
 
-    modal = page.locator("div[data-test-modal], .jobs-easy-apply-modal").first
-    if not modal.count():
-        return ("error", "Easy Apply modal didn't open")
-
-    for step in range(12):
+    modal = page.locator("div.jobs-easy-apply-modal, div[role='dialog']").first
+    for _step in range(12):
         unresolved = _fill_modal(page, modal, job, resume, c)
         if unresolved:
-            return ("needs_manual", f"unresolved questions: {', '.join(unresolved[:3])}")
+            return "needs_manual", "Couldn't answer: " + "; ".join(unresolved)[:300]
 
-        submit_btn = modal.locator("button[aria-label*='Submit application' i]").first
-        if submit_btn.count():
-            if c.apply.submit:
-                submit_btn.click()
-                _human_pause(2, 4)
-                return ("applied", "submitted via Easy Apply")
-            return ("ready_to_submit", "filled form, stopped at review (apply.submit is false)")
+        submit = modal.locator("button[aria-label*='Submit application']").first
+        if submit.count():
+            follow = modal.locator("label[for*='follow-company']").first
+            if follow.count():
+                follow.click()  # untick "follow company"
+            if not c.apply.submit:
+                return "ready_to_submit", "Filled; left at review step (submit disabled)"
+            submit.click()
+            _human_pause(2, 3)
+            return "applied", "Submitted via Easy Apply"
 
-        nxt = modal.locator("button[aria-label*='Continue to next step' i], "
-                            "button[aria-label*='Review your application' i]").first
+        nxt = modal.locator("button[aria-label*='Continue to next step'], "
+                            "button[aria-label*='Review your application']").first
         if not nxt.count():
-            nxt = modal.locator("footer button.artdeco-button--primary").first
-        if not nxt.count():
-            return ("error", f"no next button on step {step}")
+            return "needs_manual", "Unexpected Easy Apply step"
         nxt.click()
-        _human_pause(1, 2)
-
-    return ("error", "Easy Apply exceeded max step count")
+        _human_pause()
+        if modal.locator(".artdeco-inline-feedback--error").count():
+            return "needs_manual", "Form validation error"
+    return "needs_manual", "Too many steps"
 
 
 def apply_naukri(job: Job, resume: str, c: Criteria) -> tuple[str, str]:
     page = Browser.get().page
     page.goto(job["url"], wait_until="domcontentloaded")
     _human_pause(2, 3)
-
     if _first(page, "nk_company_site"):
-        return ("external", "applies on company site")
-
+        return "external", "Applies on company website"
     btn = _first(page, "nk_apply")
     if not btn:
-        return ("needs_manual", "no direct apply button found")
-    if "already applied" in btn.inner_text().lower():
-        return ("applied", "already applied previously")
-
+        return "needs_manual", "Apply button not found"
+    if "applied" in btn.inner_text().lower():
+        return "applied", "Already applied earlier"
     if not c.apply.submit:
-        return ("ready_to_submit", "stopped at 1-click apply (apply.submit is false)")
+        return "ready_to_submit", "Native Naukri apply available (submit disabled)"
     btn.click()
-    _human_pause(2, 4)
-    return ("applied", "clicked 1-click apply on Naukri")
+    _human_pause(2, 3)
+    # Naukri may open a chatbot questionnaire; hand that to the user.
+    if page.locator("[class*='chatbot']").count():
+        return "needs_manual", "Recruiter questionnaire opened"
+    return "applied", "Applied on Naukri"
 
 
-APPLIERS = {
-    "linkedin": apply_linkedin,
-    "naukri": apply_naukri,
-}
+APPLIERS = {"linkedin": apply_linkedin, "naukri": apply_naukri}

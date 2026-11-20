@@ -1,3 +1,4 @@
+"""CLI:  python -m jobhunter login | run [--dry-run] [--criteria criteria.yaml] | graph"""
 from __future__ import annotations
 
 import argparse
@@ -45,6 +46,38 @@ def _ask(job: dict) -> dict:
             raise KeyboardInterrupt
 
 
+def _preflight() -> None:
+    if not os.getenv("OPENAI_API_KEY", "").startswith("sk-"):
+        raise SystemExit("OPENAI_API_KEY is missing. Add it to .env (see .env.example).")
+
+
+def dry_run(criteria_path: str) -> None:
+    """Search + filter + score only. Nothing is applied to and nothing is logged."""
+    from rich.table import Table
+
+    from .graph import build_graph
+    from .tools.sheets import AppLog
+
+    class NoLog(AppLog):
+        def append(self, job) -> None:
+            pass
+
+    graph = build_graph(load_criteria(criteria_path), NoLog())
+    cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
+    try:
+        graph.invoke({}, cfg, interrupt_after=["score"])
+    finally:
+        Browser.close()
+    s = graph.get_state(cfg).values
+    t = Table("Score", "Title", "Company", "Location", "Source", "Why", title="Would review")
+    for j in s.get("jobs", []):
+        t.add_row(str(j["score"]), j["title"], j["company"], j.get("location", ""),
+                  j["source"], j.get("reason", ""))
+    console.print(t)
+    rejected = Counter(j["status"] for j in s.get("processed", []))
+    console.print(f"Rejected: {dict(rejected)}")
+
+
 def run(criteria_path: str) -> None:
     from .graph import build_graph
     from .tools.sheets import AppLog
@@ -76,10 +109,18 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="jobhunter")
     ap.add_argument("command", choices=["login", "run", "graph"])
     ap.add_argument("--criteria", default="criteria.yaml")
+    ap.add_argument("--dry-run", action="store_true", help="search + score only")
     args = ap.parse_args()
 
     if args.command == "login":
-        Browser.get().login_interactive()
+        from playwright.sync_api import Error as PlaywrightError
+        try:
+            Browser.get().login_interactive()
+        except PlaywrightError as e:
+            reason = "timed out" if "Timeout" in type(e).__name__ else "browser window was closed"
+            raise SystemExit(f"Login not completed ({reason}). Run `python -m jobhunter login` again.")
+        finally:
+            Browser.close()
     elif args.command == "graph":
         from .config import Criteria
         from .graph import build_graph
@@ -87,7 +128,8 @@ def main() -> None:
         dummy = Criteria(resume_path="-", searches=[])
         print(build_graph(dummy, AppLog()).get_graph().draw_mermaid())
     else:
-        run(args.criteria)
+        _preflight()
+        (dry_run if args.dry_run else run)(args.criteria)
 
 
 if __name__ == "__main__":
