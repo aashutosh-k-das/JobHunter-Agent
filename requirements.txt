@@ -1,0 +1,11 @@
+langgraph>=0.2.60
+langchain-openai>=0.2.14
+langchain-core>=0.3.28
+playwright>=1.49
+gspread>=6.1
+google-auth>=2.36
+pydantic>=2.9
+pyyaml>=6.0
+python-dotenv>=1.0
+pypdf>=5.1
+rich>=13.9
