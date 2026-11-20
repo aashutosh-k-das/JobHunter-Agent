@@ -88,3 +88,45 @@ def _fill_modal(page: Page, modal: Locator, job: Job, resume: str, c: Criteria) 
             unresolved.append(legend)
 
     return unresolved
+
+from .browser import SEL, Browser, _first, _human_pause
+
+
+def apply_linkedin(job: Job, resume: str, c: Criteria) -> tuple[str, str]:
+    page = Browser.get().page
+    page.goto(job["url"], wait_until="domcontentloaded")
+    _human_pause(2, 3)
+
+    btn = _first(page, "li_easy_apply")
+    if not btn:
+        return ("external", "no Easy Apply button; redirected or external")
+    btn.click()
+    _human_pause(1, 2)
+
+    modal = page.locator("div[data-test-modal], .jobs-easy-apply-modal").first
+    if not modal.count():
+        return ("error", "Easy Apply modal didn't open")
+
+    for step in range(12):
+        unresolved = _fill_modal(page, modal, job, resume, c)
+        if unresolved:
+            return ("needs_manual", f"unresolved questions: {', '.join(unresolved[:3])}")
+
+        submit_btn = modal.locator("button[aria-label*='Submit application' i]").first
+        if submit_btn.count():
+            if c.apply.submit:
+                submit_btn.click()
+                _human_pause(2, 4)
+                return ("applied", "submitted via Easy Apply")
+            return ("ready_to_submit", "filled form, stopped at review (apply.submit is false)")
+
+        nxt = modal.locator("button[aria-label*='Continue to next step' i], "
+                            "button[aria-label*='Review your application' i]").first
+        if not nxt.count():
+            nxt = modal.locator("footer button.artdeco-button--primary").first
+        if not nxt.count():
+            return ("error", f"no next button on step {step}")
+        nxt.click()
+        _human_pause(1, 2)
+
+    return ("error", "Easy Apply exceeded max step count")
