@@ -34,3 +34,19 @@ def score_job(job: Job, resume: str, criteria: Criteria) -> MatchScore:
             f"{job.get('description', '')[:6000]}"
         )),
     ])
+
+
+def draft_cover_letter(job: Job, resume: str, criteria: Criteria) -> str:
+    msg = _llm().invoke([
+        SystemMessage(content=(
+            "Write a concise cover letter (150-220 words, 3 short paragraphs). "
+            "Be specific: connect 2-3 concrete achievements from the resume to the job's "
+            "requirements. No clichés ('I am writing to express...'), no invented facts, "
+            "no placeholders. Plain text, sign off with the candidate's name."
+        )),
+        HumanMessage(content=(
+            f"Candidate name: {criteria.profile.full_name}\n\nRESUME:\n{resume[:8000]}\n\n"
+            f"JOB: {job['title']} at {job['company']}\n{job.get('description', '')[:6000]}"
+        )),
+    ])
+    return msg.content.strip()
