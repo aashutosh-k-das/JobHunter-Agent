@@ -50,3 +50,23 @@ def draft_cover_letter(job: Job, resume: str, criteria: Criteria) -> str:
         )),
     ])
     return msg.content.strip()
+
+
+def answer_form_question(label: str, options: list[str] | None, resume: str,
+                         criteria: Criteria) -> str:
+    """Fallback for application-form questions not covered by profile answers."""
+    p = criteria.profile
+    opts = f"\nChoose exactly one of: {options}" if options else ""
+    msg = _llm().invoke([
+        SystemMessage(content=(
+            "You fill job application forms truthfully for a candidate. Reply with ONLY "
+            "the answer value. Numeric questions -> a bare number. If the resume does not "
+            "support an answer, reply UNKNOWN."
+        )),
+        HumanMessage(content=(
+            f"Profile: {p.model_dump_json()}\nExperience years: "
+            f"{criteria.filters.experience_years}\nRESUME:\n{resume[:5000]}\n\n"
+            f"Question: {label}{opts}"
+        )),
+    ])
+    return msg.content.strip()
